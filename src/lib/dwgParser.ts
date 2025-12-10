@@ -16,6 +16,9 @@ export interface CadEntity {
     textHeight?: number;
     rotation?: number;
     position?: { x: number; y: number; z?: number };
+    // For hatch
+    loops?: { x: number; y: number; z?: number }[][];
+    color?: number;
 }
 
 export interface ParsedDwg {
@@ -387,50 +390,68 @@ function convertEntity(
 
         case 'HATCH': {
             if (e.boundaryPaths && e.boundaryPaths.length > 0) {
-                const result: CadEntity[] = [];
+                const loops: { x: number; y: number; z: number }[][] = [];
 
                 for (const path of e.boundaryPaths) {
+                    const loop: { x: number; y: number; z: number }[] = [];
+                    // Handle polyline boundary
                     if (path.vertices && path.vertices.length > 0) {
-                        result.push({
-                            type: 'POLYLINE',
-                            vertices: path.vertices.map((v: any) =>
-                                transformPoint({ x: v.x ?? 0, y: v.y ?? 0, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ)
-                            ),
-                            shape: path.isClosed ?? true
+                        path.vertices.forEach((v: any) => {
+                            loop.push(transformPoint({ x: v.x ?? 0, y: v.y ?? 0, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ));
                         });
-                    } else if (path.edges && path.edges.length > 0) {
-                        for (const edge of path.edges) {
-                            if (edge.type === 1 && edge.start && edge.end) {
-                                result.push({
-                                    type: 'LINE',
-                                    vertices: [
-                                        transformPoint({ x: edge.start.x, y: edge.start.y, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ),
-                                        transformPoint({ x: edge.end.x, y: edge.end.y, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ)
-                                    ]
-                                });
-                            } else if (edge.type === 2 && edge.center) {
-                                const tc = transformPoint({ x: edge.center.x, y: edge.center.y, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ);
-                                result.push({
-                                    type: 'ARC',
-                                    center: tc,
-                                    radius: (edge.radius ?? 0) * Math.max(scaleX, scaleY),
-                                    startAngle: (edge.startAngle ?? 0) + rotation,
-                                    endAngle: (edge.endAngle ?? Math.PI * 2) + rotation
-                                });
-                            } else if (edge.type === 4 && edge.controlPoints) {
-                                result.push({
-                                    type: 'POLYLINE',
-                                    vertices: edge.controlPoints.map((p: any) =>
-                                        transformPoint({ x: p.x ?? 0, y: p.y ?? 0, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ)
-                                    ),
-                                    shape: false
-                                });
+                        // Close loop if needed
+                        if (path.isClosed !== false && loop.length > 0) { // default closed
+                            // Check if last equals first
+                            const first = loop[0];
+                            const last = loop[loop.length - 1];
+                            if (Math.abs(first.x - last.x) > 0.0001 || Math.abs(first.y - last.y) > 0.0001) {
+                                loop.push(first);
                             }
                         }
                     }
+                    // Handle edge boundary (approximate arc/line edges as a loop of points)
+                    else if (path.edges && path.edges.length > 0) {
+                        // This is complex because edges need to be connected. 
+                        // For now, we gather points. Ideally we'd trace the path.
+                        // Simplified: treating edges as separate or connected segments.
+
+                        // Strategy: Sample points from edges to form a polygon loop
+                        for (const edge of path.edges) {
+                            if (edge.type === 1 && edge.start && edge.end) { // Line
+                                // Add start and end (removing duplicates logic skipped for simplicity/speed)
+                                loop.push(transformPoint({ x: edge.start.x, y: edge.start.y, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ));
+                                loop.push(transformPoint({ x: edge.end.x, y: edge.end.y, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ));
+                            } else if (edge.type === 2 && edge.center) { // Arc
+                                // Sample arc
+                                const startAngle = (edge.startAngle ?? 0);
+                                const endAngle = (edge.endAngle ?? Math.PI * 2);
+                                const radius = (edge.radius ?? 0) * Math.max(scaleX, scaleY);
+                                const center = transformPoint({ x: edge.center.x, y: edge.center.y, z: 0 }, offset, rotation, scaleX, scaleY, scaleZ);
+
+                                // 10 points for arc
+                                const steps = 10;
+                                for (let i = 0; i <= steps; i++) {
+                                    const t = startAngle + (endAngle - startAngle) * (i / steps);
+                                    const x = center.x + radius * Math.cos(t + rotation);
+                                    const y = center.y + radius * Math.sin(t + rotation);
+                                    loop.push({ x, y, z: center.z });
+                                }
+                            }
+                        }
+                    }
+
+                    if (loop.length > 0) {
+                        loops.push(loop);
+                    }
                 }
 
-                return result.length > 0 ? result : null;
+                if (loops.length > 0) {
+                    return {
+                        type: 'HATCH',
+                        loops: loops,
+                        color: e.color ?? 256
+                    };
+                }
             }
             break;
         }

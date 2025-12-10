@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import DxfParser from 'dxf-parser';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+// @ts-ignore
+import { Text } from 'troika-three-text';
 import { parseDwg } from '../lib/dwgParser';
 
 interface CadViewerProps {
@@ -163,9 +165,64 @@ export function CadViewer({ content, fileType }: CadViewerProps) {
                     const line = new THREE.Line(geometry, material);
                     group.add(line);
                 }
-                // TEXT (Simple placeholder)
+                // HATCH
+                else if (entity.type === 'HATCH') {
+                    if (entity.loops && entity.loops.length > 0) {
+                        entity.loops.forEach((loop: any[]) => {
+                            if (loop.length < 3) return;
+
+                            // Draw Fill
+                            const shape = new THREE.Shape();
+                            shape.moveTo(loop[0].x, loop[0].y);
+                            for (let i = 1; i < loop.length; i++) {
+                                shape.lineTo(loop[i].x, loop[i].y);
+                            }
+
+                            const geometry = new THREE.ShapeGeometry(shape);
+                            const meshMaterial = new THREE.MeshBasicMaterial({
+                                color: 0xcccccc,
+                                transparent: true,
+                                opacity: 0.2,
+                                side: THREE.DoubleSide
+                            });
+                            const mesh = new THREE.Mesh(geometry, meshMaterial);
+                            // Slightly offset Z to avoid z-fighting with boundary lines if z is flat
+                            mesh.position.z = -1;
+                            group.add(mesh);
+
+                            // Draw Outline
+                            const points = loop.map((p: any) => new THREE.Vector3(p.x, p.y, p.z || 0));
+                            const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                            const line = new THREE.Line(lineGeometry, material);
+                            group.add(line);
+                        });
+                    }
+                }
+                // TEXT / MTEXT
                 else if (entity.type === 'TEXT' || entity.type === 'MTEXT') {
-                    // TODO: Implement text rendering if needed. Complex in 3D.
+                    if (entity.text && entity.position) {
+                        try {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const textMesh: any = new Text();
+                            textMesh.text = entity.text;
+                            textMesh.fontSize = entity.textHeight || 10;
+                            textMesh.font = '/fonts/NanumGothic.ttf'; // Use Korean supporting font
+                            textMesh.color = 0xffffff;
+                            textMesh.anchorX = 'left';
+                            textMesh.anchorY = 'baseline';
+
+                            textMesh.position.set(entity.position.x, entity.position.y, entity.position.z || 0);
+                            if (entity.rotation) {
+                                textMesh.rotation.z = entity.rotation;
+                            }
+
+                            // Important: trigger update
+                            textMesh.sync();
+                            group.add(textMesh);
+                        } catch (e) {
+                            console.warn("Failed to create text", e);
+                        }
+                    }
                 }
             });
 
