@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { useEditorStore } from '../stores/editorStore';
 import { CadViewer } from './CadViewer';
+import { FeaEditor } from './FeaEditor';
 
 export function EditorArea() {
     const { activeFilePath } = useEditorStore();
@@ -45,11 +46,17 @@ export function EditorArea() {
         return <div className="h-full flex items-center justify-center text-neutral-500">Loading...</div>;
     }
 
-    // Determine language based on extension
+    // Determine file type based on extension
     const extension = activeFilePath.split('.').pop()?.toLowerCase();
 
+    // Handle DXF files
     if (extension === 'dxf') {
         return <CadViewer content={content} />;
+    }
+
+    // Handle FEA files
+    if (extension === 'fea') {
+        return <FeaEditor content={content} filePath={activeFilePath} />;
     }
 
     let language = 'plaintext';
