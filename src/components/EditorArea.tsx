@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { useEditorStore } from '../stores/editorStore';
+import { CadViewer } from './CadViewer';
 
 export function EditorArea() {
     const { activeFilePath } = useEditorStore();
@@ -46,6 +47,11 @@ export function EditorArea() {
 
     // Determine language based on extension
     const extension = activeFilePath.split('.').pop()?.toLowerCase();
+
+    if (extension === 'dxf') {
+        return <CadViewer content={content} />;
+    }
+
     let language = 'plaintext';
     if (extension === 'ts' || extension === 'tsx') language = 'typescript';
     if (extension === 'js' || extension === 'jsx') language = 'javascript';
