@@ -6,19 +6,50 @@ import { FeaEditor } from './FeaEditor';
 
 export function EditorArea() {
     const { activeFilePath } = useEditorStore();
-    const [content, setContent] = useState<string>('');
+    const [content, setContent] = useState<string | ArrayBuffer>('');
     const [loading, setLoading] = useState(false);
+    const [fileType, setFileType] = useState<'text' | 'dxf' | 'dwg' | 'fea'>('text');
 
     useEffect(() => {
         const loadContent = async () => {
             if (!activeFilePath) return;
             setLoading(true);
+
+            const extension = activeFilePath.split('.').pop()?.toLowerCase();
+
             try {
-                const fileContent = await window.ipcRenderer.invoke('fs:readFile', activeFilePath);
-                setContent(fileContent || '');
+                if (extension === 'dwg') {
+                    // DWG files are binary - read as binary
+                    const binaryContent = await window.ipcRenderer.invoke('fs:readBinaryFile', activeFilePath);
+                    if (binaryContent) {
+                        // Convert Buffer to ArrayBuffer
+                        const arrayBuffer = binaryContent.buffer.slice(
+                            binaryContent.byteOffset,
+                            binaryContent.byteOffset + binaryContent.byteLength
+                        );
+                        setContent(arrayBuffer);
+                        setFileType('dwg');
+                    } else {
+                        setContent('Error loading DWG file');
+                        setFileType('text');
+                    }
+                } else if (extension === 'dxf') {
+                    const fileContent = await window.ipcRenderer.invoke('fs:readFile', activeFilePath);
+                    setContent(fileContent || '');
+                    setFileType('dxf');
+                } else if (extension === 'fea') {
+                    const fileContent = await window.ipcRenderer.invoke('fs:readFile', activeFilePath);
+                    setContent(fileContent || '');
+                    setFileType('fea');
+                } else {
+                    const fileContent = await window.ipcRenderer.invoke('fs:readFile', activeFilePath);
+                    setContent(fileContent || '');
+                    setFileType('text');
+                }
             } catch (error) {
                 console.error('Failed to load file:', error);
                 setContent('Error loading file');
+                setFileType('text');
             } finally {
                 setLoading(false);
             }
@@ -46,20 +77,20 @@ export function EditorArea() {
         return <div className="h-full flex items-center justify-center text-neutral-500">Loading...</div>;
     }
 
-    // Determine file type based on extension
-    const extension = activeFilePath.split('.').pop()?.toLowerCase();
-
-    // Handle DXF files
-    if (extension === 'dxf') {
-        return <CadViewer content={content} />;
+    // Handle CAD files
+    if (fileType === 'dxf' || fileType === 'dwg') {
+        return <CadViewer content={content} fileType={fileType} />;
     }
 
     // Handle FEA files
-    if (extension === 'fea') {
+    if (fileType === 'fea') {
         return <FeaEditor content={content} filePath={activeFilePath} />;
     }
 
     let language = 'plaintext';
+    // Determine language based on extension
+    const extension = activeFilePath.split('.').pop()?.toLowerCase();
+
     if (extension === 'ts' || extension === 'tsx') language = 'typescript';
     if (extension === 'js' || extension === 'jsx') language = 'javascript';
     if (extension === 'json') language = 'json';
@@ -73,7 +104,7 @@ export function EditorArea() {
             <Editor
                 height="100%"
                 language={language}
-                value={content}
+                value={content as string}
                 theme="vs-dark"
                 options={{
                     minimap: { enabled: false },
