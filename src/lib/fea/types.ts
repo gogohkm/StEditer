@@ -30,6 +30,7 @@ export interface FeaModel {
     nodes: FeaNode[];
     elements: FeaElement[];
     loads: FeaLoad[];
+    analysisResult?: FeaAnalysisResult;
 }
 
 export interface FeaAnalysisResult {

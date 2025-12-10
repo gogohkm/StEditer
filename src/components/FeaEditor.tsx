@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { FeaModel, FeaNode, FeaElement, FeaAnalysisResult, FeaLoad } from '../lib/fea/types';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
+import { useEditorStore } from '../stores/editorStore';
 
 interface FeaEditorProps {
     content: string | ArrayBuffer;
@@ -31,10 +32,16 @@ export function FeaEditor({ content, filePath }: FeaEditorProps) {
         if (typeof content === 'string' && content.length > 0) {
             try {
                 const parsed = JSON.parse(content);
-                setModel(parsed.nodes ? parsed : { nodes: [], elements: [], loads: [] });
-                // Reset analysis when content changes
-                setAnalysisResult(null);
-                setMode('MODELING');
+                // Check if this is a result file
+                if (parsed.analysisResult) {
+                    setModel(parsed); // parsed should contain full model + result
+                    setAnalysisResult(parsed.analysisResult);
+                    setMode('ANALYSIS_RESULT');
+                } else {
+                    setModel(parsed.nodes ? parsed : { nodes: [], elements: [], loads: [] });
+                    setAnalysisResult(null);
+                    setMode('MODELING');
+                }
             } catch (e) {
                 console.error("Failed to parse FEA model", e);
                 setModel({ nodes: [], elements: [], loads: [] });
@@ -50,16 +57,33 @@ export function FeaEditor({ content, filePath }: FeaEditorProps) {
         alert('Model Saved!');
     };
 
+    const { openFile } = useEditorStore();
+
     const handleRunAnalysis = async () => {
         try {
             const result = await window.ipcRenderer.invoke('fea:run', model);
             console.log("Analysis Result:", result);
             if (result.error) throw new Error(result.error);
 
-            setAnalysisResult(result);
-            setMode('ANALYSIS_RESULT');
-            setActiveTool('SELECT'); // Reset tool
-            alert("Analysis Complete.");
+            // Construct result object (Model + Result)
+            const resultModel = {
+                ...model,
+                analysisResult: result
+            };
+
+            // Save to new file
+            const resultPath = filePath.endsWith('.fea')
+                ? filePath.replace('.fea', '.result.fea')
+                : filePath + '.result.fea';
+
+            await window.ipcRenderer.invoke('fs:writeFile', {
+                path: resultPath,
+                content: JSON.stringify(resultModel, null, 2)
+            });
+
+            if (confirm('Analysis Complete. Result saved to ' + resultPath.split('/').pop() + '\nOpen result file now?')) {
+                openFile(resultPath);
+            }
         } catch (e) {
             console.error(e);
             alert("Analysis Failed: " + String(e));
